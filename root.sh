@@ -17,11 +17,25 @@ check_root() {
     fi
 }
 
+# 函数：安装 openssl
+install_openssl() {
+    if [ "$OS" = "centos" ]; then
+        sudo yum install -y openssl
+    elif [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
+        sudo apt-get update
+        sudo apt-get install -y openssl
+    else
+        echo "不支持的操作系统，请手动安装 openssl。"
+        exit 1
+    fi
+    check_error "安装 openssl 时出错"
+}
+
 # 函数：检查是否安装 openssl
 check_openssl_installed() {
     if ! command -v openssl &> /dev/null; then
-        echo "openssl 未安装，请先安装 openssl。"
-        exit 1
+        echo "openssl 未安装，正在安装..."
+        install_openssl
     fi
 }
 
@@ -103,7 +117,11 @@ modify_sshd_config_for_port() {
 restart_sshd_service() {
     # 检查配置文件语法
     sudo sshd -t
-    check_error "sshd_config 文件语法错误"
+    if [ $? -ne 0 ]; then
+        sudo sshd -t -f /etc/ssh/sshd_config
+        echo "sshd_config 文件语法错误，请检查配置文件。"
+        exit 1
+    fi
 
     if command -v systemctl &> /dev/null; then
         sudo systemctl restart sshd
