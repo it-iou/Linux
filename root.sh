@@ -20,7 +20,7 @@ check_root() {
 # 函数：安装 openssl
 install_openssl() {
     echo "正在安装 openssl..."
-    if [ "$OS" = "centos" ]; then
+    if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
         sudo yum install -y openssl
     elif [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
         sudo apt-get install -y openssl
@@ -71,7 +71,7 @@ get_current_ssh_port() {
 
 # 函数：安装 SELinux 管理工具
 install_selinux_utils() {
-    if [ "$OS" = "centos" ]; then
+    if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
         if ! command -v semanage &> /dev/null; then
             echo "SELinux 管理工具未安装，正在安装..."
             sudo yum install -y policycoreutils-python-utils || sudo yum install -y policycoreutils-python
@@ -83,7 +83,7 @@ install_selinux_utils() {
 # 函数：修改 sshd_config 文件以更改 SSH 端口和允许登录设置
 modify_sshd_config_for_port() {
     local new_port=$1
-    if [ "$OS" = "centos" ]; then
+    if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
         install_selinux_utils  # 确保 SELinux 工具已安装
         # 更新 SELinux 策略，允许新端口
         semanage port -a -t ssh_port_t -p tcp $new_port 2>/dev/null || semanage port -m -t ssh_port_t -p tcp $new_port
@@ -91,9 +91,13 @@ modify_sshd_config_for_port() {
     fi
 
     # 修改 sshd_config
-    sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
-    sudo sed -i 's/^#*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
-    sudo sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sudo sed -i "/^Port /d" /etc/ssh/sshd_config
+    sudo sed -i "/^PermitRootLogin /d" /etc/ssh/sshd_config
+    sudo sed -i "/^PasswordAuthentication /d" /etc/ssh/sshd_config
+    echo "Port $new_port" | sudo tee -a /etc/ssh/sshd_config
+    echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config
+    echo "PasswordAuthentication yes" | sudo tee -a /etc/ssh/sshd_config
+
     check_error "修改 SSH 配置时出错"
 }
 
@@ -169,13 +173,14 @@ main() {
         esac
 
         modify_sshd_config_for_port $new_port
-        restart_sshd_service
-
-        echo "SSH端口已成功更改为：$new_port" # 输出新的端口
     else
         current_port=$(get_current_ssh_port)
         echo "保持当前端口：$current_port 不变。"
+        new_port=$current_port
+        modify_sshd_config_for_port $new_port
     fi
+
+    restart_sshd_service
 
     # 删除下载的脚本
     rm -f "$0"
