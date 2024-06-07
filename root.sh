@@ -25,6 +25,17 @@ generate_random_password() {
     echo "$random_password" # 输出密码
 }
 
+# 函数：生成随机端口
+generate_random_port() {
+    while true; do
+        random_port=$((RANDOM % 65535))
+        if [ "$random_port" -ge 1024 ] && [ "$random_port" -le 65535 ]; then
+            break
+        fi
+    done
+    echo "$random_port"
+}
+
 # 函数：修改 sshd_config 文件以允许 root 登录和密码认证
 modify_sshd_config_for_root_login() {
     sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
@@ -143,7 +154,24 @@ main() {
             echo "密码已成功更改：$password" # 输出密码
             ;;
         2)
-            read -p "请输入新的SSH端口：" new_port
+            echo "请选择端口选项："
+            echo "1. 生成随机端口"
+            echo "2. 输入自定义端口"
+            read -p "请输入选项编号：" port_option
+
+            case $port_option in
+                1)
+                    new_port=$(generate_random_port)
+                    ;;
+                2)
+                    read -p "请输入新的SSH端口：" new_port
+                    ;;
+                *)
+                    echo "无效选项 退出..."
+                    exit 1
+                    ;;
+            esac
+
             modify_sshd_config_for_port $new_port
             restart_sshd_service
 
