@@ -60,13 +60,22 @@ generate_random_port() {
     done
 }
 
+# 函数：安装 SELinux 管理工具
+install_selinux_utils() {
+    if ! command -v semanage &> /dev/null; then
+        echo "SELinux 管理工具未安装，正在安装..."
+        sudo yum install -y policycoreutils-python
+        check_error "安装 SELinux 管理工具时出错"
+    fi
+}
+
 # 函数：修改 sshd_config 文件以更改 SSH 端口
 modify_sshd_config_for_port() {
     local new_port=$1
+    install_selinux_utils  # 确保 SELinux 工具已安装
     # 更新 SELinux 策略，允许新端口
-    if sestatus | grep -qi enabled; then
-        semanage port -a -t ssh_port_t -p tcp $new_port 2>/dev/null || semanage port -m -t ssh_port_t -p tcp $new_port
-    fi
+    semanage port -a -t ssh_port_t -p tcp $new_port 2>/dev/null || semanage port -m -t ssh_port_t -p tcp $new_port
+    check_error "更新 SELinux 端口策略时出错"
 
     # 更新防火墙规则
     if command -v firewall-cmd &>/dev/null; then
