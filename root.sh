@@ -47,18 +47,18 @@ generate_random_password() {
     echo "$random_password" # 输出密码
 }
 
-# 函数：生成随机端口
+# 函数：生成随机端口，避免常用端口
 generate_random_port() {
+    local random_port
+    local common_ports=(22 80 443 8080 3306 5432 6379 27017)
     while true; do
-        random_port=$((RANDOM % 65535))
-        if [ "$random_port" -ge 1024 ] && [ "$random_port" -le 65535 ]; then
-            # 检查端口是否已被使用
-            if ! ss -ltn | grep -q ":$random_port "; then
-                break
-            fi
+        random_port=$((1024 + RANDOM % 64511)) # 生成1024到65535之间的随机端口
+        # 检查端口是否在常用端口列表中或已被使用
+        if ! [[ " ${common_ports[@]} " =~ " ${random_port} " ]] && ! ss -ltn | grep -q ":$random_port "; then
+            echo "$random_port"
+            break
         fi
     done
-    echo "$random_port"
 }
 
 # 函数：修改 sshd_config 文件以允许 root 登录和密码认证
@@ -149,60 +149,16 @@ main() {
 
     check_and_install_openssl
 
-    # 提示用户选择密码选项
-    echo "请选择密码选项："
-    echo "1. 生成密码"
-    echo "2. 输入密码"
-    read -p "请输入选项编号：" password_option
-
-    case $password_option in
-        1)
-            password=$(generate_random_password) # 保存生成的密码
-            ;;
-        2)
-            read -p "请输入更改密码：" custom_password
-            echo "root:$custom_password" | sudo chpasswd
-            check_error "修改密码时出错"
-            password=$custom_password # 保存输入的密码
-            ;;
-        *)
-            echo "无效选项 退出..."
-            exit 1
-            ;;
-    esac
+    # 自动生成密码和端口
+    password=$(generate_random_password)
+    new_port=$(generate_random_port)
 
     modify_sshd_config_for_root_login
+    modify_sshd_config_for_port $new_port
     restart_sshd_service
 
     echo "密码已成功更改：$password" # 输出密码
-
-    # 询问是否修改端口
-    read -p "是否要修改SSH端口？[y/N] " change_port
-    if [ "$change_port" = "y" ] || [ "$change_port" = "Y" ]; then
-        echo "请选择端口选项："
-        echo "1. 生成随机端口"
-        echo "2. 输入自定义端口"
-        read -p "请输入选项编号：" port_option
-
-        case $port_option in
-            1)
-                new_port=$(generate_random_port)
-                ;;
-            2)
-                read -p "请输入新的SSH端口：" new_port
-                ;;
-            *)
-                echo "无效选项 退出..."
-                exit 1
-                ;;
-        esac
-
-        modify_sshd_config_for_port $new_port
-        sudo cat /etc/ssh/sshd_config # 输出当前的 sshd_config 文件进行调试
-        restart_sshd_service
-
-        echo "SSH端口已成功更改为：$new_port" # 输出新的端口
-    fi
+    echo "SSH端口已成功更改为：$new_port" # 输出新的端口
 
     # 删除下载的脚本
     rm -f "$0"
