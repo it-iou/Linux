@@ -60,35 +60,30 @@ generate_random_port() {
     done
 }
 
-# 函数：修改 sshd_config 文件以允许 root 登录和密码认证
-modify_sshd_config_for_root_login() {
-    sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-    check_error "备份 sshd_config 文件时出错"
-
-    sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-    sudo sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-    check_error "修改 sshd_config 时出错"
-}
-
 # 函数：修改 sshd_config 文件以更改 SSH 端口
 modify_sshd_config_for_port() {
     local new_port=$1
-    if grep -q '^Port ' /etc/ssh/sshd_config; then
-        sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
-    else
-        if grep -q '^#Port ' /etc/ssh/sshd_config; then
-            sudo sed -i "s/^#Port .*/Port $new_port/" /etc/ssh/sshd_config
-        else
-            echo "Port $new_port" | sudo tee -a /etc/ssh/sshd_config > /dev/null
-        fi
+    # 更新 SELinux 策略，允许新端口
+    if sestatus | grep -qi enabled; then
+        semanage port -a -t ssh_port_t -p tcp $new_port 2>/dev/null || semanage port -m -t ssh_port_t -p tcp $new_port
     fi
+
+    # 更新防火墙规则
+    if command -v firewall-cmd &>/dev/null; then
+        firewall-cmd --permanent --add-port=${new_port}/tcp
+        firewall-cmd --reload
+    elif command -v iptables &>/dev/null; then
+        iptables -A INPUT -p tcp --dport $new_port -j ACCEPT
+        service iptables save
+    fi
+
+    # 修改 sshd_config
+    sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config || echo "Port $new_port" | sudo tee -a /etc/ssh/sshd_config
     check_error "修改 SSH 端口时出错"
 }
 
 # 函数：重启 SSHD 服务
 restart_sshd_service() {
-    sudo sshd -t
-    check_error "sshd_config 文件语法错误"
     sudo systemctl restart sshd
     check_error "重启 SSHD 服务时出错"
 }
