@@ -69,7 +69,7 @@ install_selinux_utils() {
     fi
 }
 
-# 函数：修改 sshd_config 文件以更改 SSH 端口
+# 函数：修改 sshd_config 文件以更改 SSH 端口和允许登录设置
 modify_sshd_config_for_port() {
     local new_port=$1
     install_selinux_utils  # 确保 SELinux 工具已安装
@@ -79,8 +79,10 @@ modify_sshd_config_for_port() {
     check_error "更新 SELinux 端口策略时出错"
 
     # 修改 sshd_config
-    sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config || echo "Port $new_port" | sudo tee -a /etc/ssh/sshd_config
-    check_error "修改 SSH 端口时出错"
+    sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
+    sudo sed -i 's/^#PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sudo sed -i 's/^#PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    check_error "修改 SSH 配置时出错"
 }
 
 # 函数：重启 SSHD 服务
@@ -101,13 +103,13 @@ detect_os() {
     else
         OS=$(uname -s)
     fi
+    echo "检测到的操作系统: $OS"
 }
 
 # 主函数
 main() {
     check_root
     detect_os
-    echo "检测到的操作系统: $OS"
     check_and_install_openssl
 
     echo "请选择密码选项："
@@ -134,7 +136,7 @@ main() {
     echo "密码已成功更改：$password" # 输出密码
 
     echo "是否要修改SSH端口？[y/N]"
-    read change_port
+    read -p "请输入您的选择（y/N）：" change_port
     if [[ "$change_port" = "y" || "$change_port" = "Y" ]]; then
         echo "请选择端口选项："
         echo "1. 生成随机端口"
