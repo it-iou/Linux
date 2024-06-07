@@ -17,6 +17,14 @@ check_root() {
     fi
 }
 
+# 函数：检查是否安装 openssl
+check_openssl_installed() {
+    if ! command -v openssl &> /dev/null; then
+        echo "openssl 未安装，请先安装 openssl。"
+        exit 1
+    fi
+}
+
 # 函数：生成随机密码
 generate_random_password() {
     random_password=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9!@#$%^&*()_-')
@@ -124,6 +132,8 @@ main() {
     check_root
     detect_os
     echo "检测到的操作系统: $OS"
+
+    check_openssl_installed
 
     # 提示用户选择密码选项
     echo "请选择密码选项："
