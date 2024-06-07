@@ -73,7 +73,15 @@ modify_sshd_config_for_root_login() {
 # 函数：修改 sshd_config 文件以更改 SSH 端口
 modify_sshd_config_for_port() {
     local new_port=$1
-    sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
+    if grep -q '^Port ' /etc/ssh/sshd_config; then
+        sudo sed -i "s/^Port .*/Port $new_port/" /etc/ssh/sshd_config
+    else
+        if grep -q '^#Port ' /etc/ssh/sshd_config; then
+            sudo sed -i "s/^#Port .*/Port $new_port/" /etc/ssh/sshd_config
+        else
+            echo "Port $new_port" | sudo tee -a /etc/ssh/sshd_config > /dev/null
+        fi
+    fi
     check_error "修改 SSH 端口时出错"
 }
 
@@ -106,7 +114,6 @@ main() {
     echo "检测到的操作系统: $OS"
     check_and_install_openssl
 
-    # 提示用户选择密码选项
     echo "请选择密码选项："
     echo "1. 生成密码"
     echo "2. 输入密码"
@@ -123,19 +130,16 @@ main() {
             password=$custom_password # 保存输入的密码
             ;;
         *)
-            echo "无效选项 退出..."
+            echo "无效选项，退出..."
             exit 1
             ;;
     esac
 
-    modify_sshd_config_for_root_login
-    restart_sshd_service
-
     echo "密码已成功更改：$password" # 输出密码
 
-    # 询问是否修改端口
-    read -p "是否要修改SSH端口？[y/N] " change_port
-    if [ "$change_port" = "y" ] || [ "$change_port" = "Y" ]; then
+    echo "是否要修改SSH端口？[y/N]"
+    read change_port
+    if [[ "$change_port" = "y" || "$change_port" = "Y" ]]; then
         echo "请选择端口选项："
         echo "1. 生成随机端口"
         echo "2. 输入自定义端口"
@@ -149,7 +153,7 @@ main() {
                 read -p "请输入新的SSH端口：" new_port
                 ;;
             *)
-                echo "无效选项 退出..."
+                echo "无效选项，退出..."
                 exit 1
                 ;;
         esac
