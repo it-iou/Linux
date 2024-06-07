@@ -19,20 +19,20 @@ check_root() {
 
 # 函数：安装 openssl
 install_openssl() {
+    echo "正在安装 openssl..."
     if [ "$OS" = "centos" ]; then
-        sudo yum install -y openssl
+        sudo yum install openssl -y
     elif [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
-        sudo apt-get update
-        sudo apt-get install -y openssl
+        sudo apt-get install openssl -y
     else
-        echo "不支持的操作系统，请手动安装 openssl。"
+        echo "无法识别的操作系统，请手动安装 openssl。"
         exit 1
     fi
     check_error "安装 openssl 时出错"
 }
 
-# 函数：检查是否安装 openssl
-check_openssl_installed() {
+# 函数：检查并安装 openssl
+check_and_install_openssl() {
     if ! command -v openssl &> /dev/null; then
         echo "openssl 未安装，正在安装..."
         install_openssl
@@ -117,11 +117,7 @@ modify_sshd_config_for_port() {
 restart_sshd_service() {
     # 检查配置文件语法
     sudo sshd -t
-    if [ $? -ne 0 ]; then
-        sudo sshd -t -f /etc/ssh/sshd_config
-        echo "sshd_config 文件语法错误，请检查配置文件。"
-        exit 1
-    fi
+    check_error "sshd_config 文件语法错误"
 
     if command -v systemctl &> /dev/null; then
         sudo systemctl restart sshd
@@ -151,7 +147,7 @@ main() {
     detect_os
     echo "检测到的操作系统: $OS"
 
-    check_openssl_installed
+    check_and_install_openssl
 
     # 提示用户选择密码选项
     echo "请选择密码选项："
@@ -202,6 +198,7 @@ main() {
         esac
 
         modify_sshd_config_for_port $new_port
+        sudo cat /etc/ssh/sshd_config # 输出当前的 sshd_config 文件进行调试
         restart_sshd_service
 
         echo "SSH端口已成功更改为：$new_port" # 输出新的端口
