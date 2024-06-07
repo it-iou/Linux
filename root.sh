@@ -69,10 +69,26 @@ install_selinux_utils() {
     fi
 }
 
+# 全局变量存储旧端口
+old_port=$(grep '^Port' /etc/ssh/sshd_config | awk '{print $2}')
+
 # 函数：修改 sshd_config 文件以更改 SSH 端口
 modify_sshd_config_for_port() {
     local new_port=$1
     install_selinux_utils  # 确保 SELinux 工具已安装
+
+    # 删除旧端口的 SELinux 和防火墙规则
+    if [ ! -z "$old_port" ]; then
+        semanage port -d -t ssh_port_t -p tcp $old_port
+        if command -v firewall-cmd &>/dev/null; then
+            firewall-cmd --permanent --remove-port=${old_port}/tcp
+            firewall-cmd --reload
+        elif command -v iptables &>/dev/null; then
+            iptables -D INPUT -p tcp --dport $old_port -j ACCEPT
+            service iptables save
+        fi
+    fi
+
     # 更新 SELinux 策略，允许新端口
     semanage port -a -t ssh_port_t -p tcp $new_port 2>/dev/null || semanage port -m -t ssh_port_t -p tcp $new_port
     check_error "更新 SELinux 端口策略时出错"
