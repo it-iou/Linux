@@ -12,7 +12,7 @@ check_error() {
 # 函数：检查是否具有 root 权限
 check_root() {
     if [ "$(id -u)" != "0" ]; then
-        echo "需要 root 权限来运行此脚本。请使用 sudo 或以 root 用户身份运行。"
+        echo "需要 root 权限来运行此脚本。"
         exit 1
     fi
 }
@@ -21,9 +21,9 @@ check_root() {
 install_openssl() {
     echo "正在安装 openssl..."
     if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-        sudo yum install -y openssl
+        yum install -y openssl
     elif [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
-        sudo apt-get install -y openssl
+        apt-get install -y openssl
     else
         echo "无法识别的操作系统，请手动安装 openssl。"
         exit 1
@@ -41,23 +41,10 @@ check_and_install_openssl() {
 
 # 函数：生成随机密码
 generate_random_password() {
-    random_password=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9!@#$%^&*()_-')
-    echo "root:$random_password" | sudo chpasswd
+    local random_password=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9!@#$%^&*()_-')
+    echo "root:$random_password" | chpasswd
     check_error "生成随机密码时出错"
-    echo "$random_password" # 输出密码
-}
-
-# 函数：生成随机端口，避免常用端口
-generate_random_port() {
-    local common_ports=(22 80 443 8080 3306 5432 6379 27017 25 21 23)
-    local random_port
-    while true; do
-        random_port=$((1024 + RANDOM % 64511))
-        if ! [[ " ${common_ports[*]} " =~ " $random_port " ]] && ! ss -ltn | grep -q ":$random_port "; then
-            echo "$random_port"
-            break
-        fi
-    done
+    echo "$random_password" # 返回生成的密码给调用者
 }
 
 # 函数：获取当前 SSH 端口
@@ -69,41 +56,25 @@ get_current_ssh_port() {
     echo $current_port
 }
 
-# 函数：安装 SELinux 管理工具
-install_selinux_utils() {
-    if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-        if ! command -v semanage &> /dev/null; then
-            echo "SELinux 管理工具未安装，正在安装..."
-            sudo yum install -y policycoreutils-python-utils || sudo yum install -y policycoreutils-python
-            check_error "安装 SELinux 管理工具时出错"
-        fi
-    fi
-}
-
 # 函数：修改 sshd_config 文件以更改 SSH 端口和允许登录设置
 modify_sshd_config_for_port() {
     local new_port=$1
-    if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-        install_selinux_utils  # 确保 SELinux 工具已安装
-        # 更新 SELinux 策略，允许新端口
-        semanage port -a -t ssh_port_t -p tcp $new_port 2>/dev/null || semanage port -m -t ssh_port_t -p tcp $new_port
-        check_error "更新 SELinux 端口策略时出错"
+    local current_port=$(get_current_ssh_port)
+
+    if [ "$new_port" != "$current_port" ]; then
+        sed -i "/^Port /c\Port $new_port" /etc/ssh/sshd_config
+        sed -i "/^PermitRootLogin /c\PermitRootLogin yes" /etc/ssh/sshd_config
+        sed -i "/^PasswordAuthentication /c\PasswordAuthentication yes" /etc/ssh/sshd_config
+        check_error "修改 SSH 配置时出错"
+        echo "changed"
+    else
+        echo "unchanged"
     fi
-
-    # 修改 sshd_config
-    sudo sed -i "/^Port /d" /etc/ssh/sshd_config
-    sudo sed -i "/^PermitRootLogin /d" /etc/ssh/sshd_config
-    sudo sed -i "/^PasswordAuthentication /d" /etc/ssh/sshd_config
-    echo "Port $new_port" | sudo tee -a /etc/ssh/sshd_config
-    echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config
-    echo "PasswordAuthentication yes" | sudo tee -a /etc/ssh/sshd_config
-
-    check_error "修改 SSH 配置时出错"
 }
 
 # 函数：重启 SSHD 服务
 restart_sshd_service() {
-    sudo systemctl restart sshd
+    systemctl restart sshd
     check_error "重启 SSHD 服务时出错"
 }
 
@@ -127,60 +98,52 @@ main() {
     check_root
     detect_os
     check_and_install_openssl
+    password_changed=0
+    port_changed=0
+    new_password=""
+    new_port=$(get_current_ssh_port)
 
-    echo "请选择密码选项："
-    echo "1. 生成密码"
-    echo "2. 输入密码"
-    read -p "请输入选项编号：" password_option
+    read -p "是否更改 root 密码？[y/N]" change_password
 
-    case $password_option in
-        1)
-            password=$(generate_random_password) # 保存生成的密码
-            ;;
-        2)
-            read -p "请输入更改密码：" custom_password
-            echo "root:$custom_password" | sudo chpasswd
+    if [[ "$change_password" = "y" || "$change_password" = "Y" ]]; then
+        read -p "请输入新密码（留空自动生成）：" custom_password
+        if [ -z "$custom_password" ]; then
+            new_password=$(generate_random_password)
+            echo "密码自动生成并更改成功，新密码为：$new_password。"
+        else
+            echo "root:$custom_password" | chpasswd
             check_error "修改密码时出错"
-            password=$custom_password # 保存输入的密码
-            ;;
-        *)
-            echo "无效选项，退出..."
-            exit 1
-            ;;
-    esac
+            new_password=$custom_password
+            echo "密码已成功更改，新密码为：$new_password。"
+        fi
+        password_changed=1
+    fi
 
-    echo "密码已成功更改：$password" # 输出密码
-
-    echo "是否要修改SSH端口？[y/N]"
-    read -p "请输入您的选择（y/N）：" change_port
-    if [[ "$change_port" = "y" || "$change_port" = "Y" ]]; then
-        echo "请选择端口选项："
-        echo "1. 生成随机端口"
-        echo "2. 输入自定义端口"
-        read -p "请输入选项编号：" port_option
-
-        case $port_option in
-            1)
-                new_port=$(generate_random_port)
-                ;;
-            2)
-                read -p "请输入新的SSH端口：" new_port
-                ;;
-            *)
-                echo "无效选项，退出..."
-                exit 1
-                ;;
-        esac
-
-        modify_sshd_config_for_port $new_port
+    read -p "请输入新的 SSH 端口（留空保持当前端口）：" custom_port
+    if [ ! -z "$custom_port" ]; then
+        port_status=$(modify_sshd_config_for_port $custom_port)
+        if [ "$port_status" = "changed" ]; then
+            echo "SSH端口已成功更改，新端口为：$custom_port。"
+            new_port=$custom_port
+            port_changed=1
+        else
+            echo "SSH端口未更改，当前端口为：$new_port。"
+        fi
     else
-        current_port=$(get_current_ssh_port)
-        echo "保持当前端口：$current_port 不变。"
-        new_port=$current_port
-        modify_sshd_config_for_port $new_port
+        echo "SSH端口未更改，当前端口为：$new_port。"
     fi
 
     restart_sshd_service
+
+    if [ $password_changed -eq 1 ] && [ $port_changed -eq 1 ]; then
+        echo "密码和SSH端口均已更改。新密码为：$new_password，新端口为：$new_port。"
+    elif [ $password_changed -eq 1 ]; then
+        echo "仅密码已更改，新密码为：$new_password。当前SSH端口为：$new_port。"
+    elif [ $port_changed -eq 1 ]; then
+        echo "仅SSH端口已更改，新端口为：$new_port。密码未更改。"
+    else
+        echo "未进行任何更改。"
+    fi
 
     # 删除下载的脚本
     rm -f "$0"
@@ -188,3 +151,4 @@ main() {
 
 # 执行主函数
 main
+
