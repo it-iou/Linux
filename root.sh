@@ -102,6 +102,11 @@ main() {
     port_changed=0
     new_password=""
     new_port=$(get_current_ssh_port)
+	
+	# 开启密码认证 root 登录
+    sed -i "/^PermitRootLogin /c\PermitRootLogin yes" /etc/ssh/sshd_config
+    sed -i "/^PasswordAuthentication /c\PasswordAuthentication yes" /etc/ssh/sshd_config
+    restart_sshd_service
 
     read -p "是否更改 root 密码？[y/N]" change_password
 
